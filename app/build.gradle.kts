@@ -23,7 +23,7 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePath = System.getenv("KEYSTORE_FILE")
+            val keystorePath = System.getenv("KEYSTORE_FILE") ?: System.getenv("KEYSTORE_PATH")
             val keystorePass = System.getenv("KEYSTORE_PASSWORD")
             val alias = System.getenv("KEY_ALIAS")
             val keyPass = System.getenv("KEY_PASSWORD")
@@ -108,6 +108,9 @@ dependencies {
 
     // JSON serialization
     implementation("com.google.code.gson:gson:2.11.0")
+
+    // HTTP client for update checking and downloads
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // LibSU for elevated root capability checking & legitimate execution
     implementation("com.github.topjohnwu.libsu:core:5.2.2")

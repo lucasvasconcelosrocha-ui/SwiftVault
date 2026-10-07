@@ -28,6 +28,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.swiftvault.backup.ui.components.AppUpdateDialog
 import com.swiftvault.backup.ui.navigation.Screen
 import com.swiftvault.backup.ui.screens.*
 import com.swiftvault.backup.ui.theme.*
@@ -404,6 +405,9 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
+
+                            // Auto-updater dialog
+                            AppUpdateDialog(viewModel = viewModel, primaryAccent = primaryAccent)
                         }
                     }
                 }

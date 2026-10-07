@@ -27,6 +27,7 @@ import com.swiftvault.backup.engine.CapabilityManager
 import com.swiftvault.backup.ui.components.cards.InfoRow
 import com.swiftvault.backup.ui.theme.*
 import com.swiftvault.backup.ui.viewmodel.MainViewModel
+import com.swiftvault.backup.updater.UpdateState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -46,6 +47,11 @@ fun SettingsScreen(
     val primaryAccent = getAccentColor(currentAccent)
 
     var rootStatus by remember { mutableStateOf(CapabilityManager.RootStatus.NOT_INSTALLED) }
+
+    val isAutoCheck by viewModel.isAutoUpdateCheckEnabled.collectAsState()
+    val updateState by viewModel.updateState.collectAsState()
+    val installedVersionName = remember { viewModel.appUpdateManager.getInstalledVersionName() }
+    val installedVersionCode = remember { viewModel.appUpdateManager.getInstalledVersionCode() }
 
     LaunchedEffect(Unit) {
         rootStatus = capabilityManager.checkRootStatus()
@@ -240,7 +246,87 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 4. INFORMAÇÕES DO APLICATIVO
+            // 4. ATUALIZAÇÕES DO APLICATIVO
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, DarkCardBorder, RoundedCornerShape(14.dp)),
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.SystemUpdate, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Atualizações do Aplicativo", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 14.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Verificar ao abrir", fontWeight = FontWeight.SemiBold, color = TextPrimary, fontSize = 13.sp)
+                            Text("Consulta a última versão no GitHub ao iniciar o app", fontSize = 11.sp, color = TextSecondary)
+                        }
+                        Switch(
+                            checked = isAutoCheck,
+                            onCheckedChange = { viewModel.toggleAutoUpdateCheck(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = primaryAccent)
+                        )
+                    }
+
+                    HorizontalDivider(color = DarkCardBorder.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Versão Atual: v$installedVersionName", fontWeight = FontWeight.SemiBold, color = TextPrimary, fontSize = 13.sp)
+                            Text("Build $installedVersionCode", fontSize = 11.sp, color = TextSecondary)
+                        }
+                        Button(
+                            onClick = { viewModel.checkForUpdateManual() },
+                            enabled = updateState !is UpdateState.Checking,
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryAccent),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            if (updateState is UpdateState.Checking) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black, strokeWidth = 2.dp)
+                            } else {
+                                Text("Verificar agora", fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    if (updateState is UpdateState.UpToDate) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "✓ SwiftVault já está na versão mais recente (v$installedVersionName).",
+                            color = StatusSuccess,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else if (updateState is UpdateState.Error) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = (updateState as UpdateState.Error).message,
+                            color = StatusError,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 5. INFORMAÇÕES DO APLICATIVO
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -249,8 +335,8 @@ fun SettingsScreen(
                 colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("ODIN_BACKUP", fontWeight = FontWeight.ExtraBold, color = TextPrimary, fontSize = 15.sp)
-                    Text("Versão 1.0 — API 35 (Android 17 Ready)", fontSize = 12.sp, color = primaryAccent, fontWeight = FontWeight.SemiBold)
+                    Text("SwiftVault", fontWeight = FontWeight.ExtraBold, color = TextPrimary, fontSize = 15.sp)
+                    Text("Versão $installedVersionName — API 35 (Android 17 Ready)", fontSize = 12.sp, color = primaryAccent, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(10.dp))
                     InfoRow("Motor Criptográfico", "AES-256-GCM Hardware-Backed", StatusSuccess)
                     InfoRow("Validação de Integridade", "SHA-256 e MD5 Hash", StatusSuccess)

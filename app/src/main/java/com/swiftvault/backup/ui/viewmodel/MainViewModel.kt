@@ -14,6 +14,9 @@ import com.swiftvault.backup.data.database.AppDatabaseHelper
 import com.swiftvault.backup.data.model.*
 import com.swiftvault.backup.engine.*
 import com.swiftvault.backup.service.BackupForegroundService
+import com.swiftvault.backup.updater.*
+import com.topjohnwu.superuser.Shell
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -160,6 +163,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _rootAccessStatus = MutableStateFlow(CapabilityManager.RootStatus.UNAUTHORIZED)
     val rootAccessStatus: StateFlow<CapabilityManager.RootStatus> = _rootAccessStatus.asStateFlow()
 
+    // In-app updater
+    val appUpdateManager = AppUpdateManager(context)
+
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    private val _isAutoUpdateCheckEnabled = MutableStateFlow(appUpdateManager.isAutoCheckEnabled())
+    val isAutoUpdateCheckEnabled: StateFlow<Boolean> = _isAutoUpdateCheckEnabled.asStateFlow()
+
     // Capability state
     private val _activeMode = MutableStateFlow(CapabilityManager.ExecutionMode.STANDARD)
     val activeMode: StateFlow<CapabilityManager.ExecutionMode> = _activeMode.asStateFlow()
@@ -167,6 +179,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         loadData()
         observeDatabaseChanges()
+        checkForUpdateOnStartup()
     }
 
     fun setThemeAccent(accent: ThemeAccent) {
@@ -966,5 +979,130 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             documentsBytes = docsSize,
             othersBytes = otherSize
         )
+    }
+
+    fun isCriticalOperationActive(): Boolean {
+        val backupActive = _backupProgress.value?.let { !it.isFinished } ?: false
+        val restoreActive = _restoreProgress.value?.let { !it.isFinished } ?: false
+        val syncActive = _syncQueue.value.any { it.status == QueueStatus.RUNNING }
+        return backupActive || restoreActive || syncActive
+    }
+
+    fun toggleAutoUpdateCheck(enabled: Boolean) {
+        appUpdateManager.setAutoCheckEnabled(enabled)
+        _isAutoUpdateCheckEnabled.value = enabled
+    }
+
+    fun checkForUpdateOnStartup() {
+        if (!appUpdateManager.isAutoCheckEnabled()) return
+        viewModelScope.launch {
+            val result = appUpdateManager.checkForUpdate(forceManual = false)
+            result.onSuccess { releaseInfo ->
+                if (releaseInfo != null) {
+                    _updateState.value = UpdateState.Available(releaseInfo)
+                }
+            }.onFailure { e ->
+                Log.d("MainViewModel", "Checagem automática de versão em background concluída discretamente: ${e.message}")
+            }
+        }
+    }
+
+    fun checkForUpdateManual() {
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Checking(isManual = true)
+            val result = appUpdateManager.checkForUpdate(forceManual = true)
+            result.onSuccess { releaseInfo ->
+                if (releaseInfo != null) {
+                    _updateState.value = UpdateState.Available(releaseInfo)
+                } else {
+                    _updateState.value = UpdateState.UpToDate(appUpdateManager.getInstalledVersionName())
+                }
+            }.onFailure { e ->
+                _updateState.value = UpdateState.Error(
+                    message = "Não foi possível verificar atualizações no momento.",
+                    technicalCode = e.message
+                )
+            }
+        }
+    }
+
+    /**
+     * "Agora não": Dismisses the dialog for this session.
+     * Crucial: Does NOT persist any "ignore version" setting,
+     * ensuring the dialog reappears on the next app launch if the update is still pending.
+     */
+    fun dismissUpdatePrompt() {
+        _updateState.value = UpdateState.Idle
+    }
+
+    fun startUpdateDownload(releaseInfo: AppReleaseInfo) {
+        if (isCriticalOperationActive()) {
+            _updateState.value = UpdateState.BlockedByOperation(
+                "Existe uma operação de backup, restauração ou sincronização em andamento. Aguarde antes de atualizar."
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Downloading(releaseInfo, 0f, 0.0, 0L, releaseInfo.apkSize)
+
+            val downloadResult = appUpdateManager.downloadUpdate(releaseInfo) { progress, speedMb, downloaded, total ->
+                _updateState.value = UpdateState.Downloading(releaseInfo, progress, speedMb, downloaded, total)
+            }
+
+            downloadResult.onSuccess { apkFile ->
+                _updateState.value = UpdateState.Verifying(releaseInfo, "Verificando integridade e assinatura do APK...")
+                val verifyResult = appUpdateManager.verifyDownloadedApk(apkFile, releaseInfo.sha256)
+                verifyResult.onSuccess {
+                    val rootAvailable = Shell.isAppGrantedRoot() == true
+                    _updateState.value = UpdateState.ReadyToInstall(releaseInfo, apkFile, isRootAvailable = rootAvailable)
+                }.onFailure { err ->
+                    _updateState.value = UpdateState.Error(
+                        message = err.message ?: "Falha na verificação de integridade do pacote.",
+                        technicalCode = "SECURITY_VERIFICATION_FAILED"
+                    )
+                }
+            }.onFailure { err ->
+                _updateState.value = UpdateState.Error(
+                    message = "Falha no download da atualização: ${err.message}",
+                    technicalCode = "DOWNLOAD_FAILED"
+                )
+            }
+        }
+    }
+
+    fun installDownloadedUpdate(apkFile: File, preferRoot: Boolean) {
+        if (isCriticalOperationActive()) {
+            _updateState.value = UpdateState.BlockedByOperation(
+                "Existe uma operação de backup, restauração ou sincronização em andamento. Aguarde antes de atualizar."
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            val currentState = _updateState.value
+            val releaseInfo = if (currentState is UpdateState.ReadyToInstall) currentState.releaseInfo else null
+            if (releaseInfo != null) {
+                _updateState.value = UpdateState.Installing(releaseInfo, isRoot = preferRoot)
+            }
+
+            val installResult = appUpdateManager.installApk(apkFile, preferRoot)
+            installResult.onFailure { err ->
+                if (err is UnknownSourcesPermissionRequiredException) {
+                    try {
+                        context.startActivity(err.intent)
+                    } catch (_: Exception) {}
+                    _updateState.value = UpdateState.Error(
+                        message = "Permissão necessária: autorize o SwiftVault a instalar aplicativos nas configurações do Android.",
+                        technicalCode = "PERMISSION_INSTALL_PACKAGES_REQUIRED"
+                    )
+                } else {
+                    _updateState.value = UpdateState.Error(
+                        message = "Falha na instalação: ${err.message}",
+                        technicalCode = "INSTALLATION_FAILED"
+                    )
+                }
+            }
+        }
     }
 }
