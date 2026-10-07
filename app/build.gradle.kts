@@ -21,10 +21,31 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("KEYSTORE_FILE")
+            val keystorePass = System.getenv("KEYSTORE_PASSWORD")
+            val alias = System.getenv("KEY_ALIAS")
+            val keyPass = System.getenv("KEY_PASSWORD")
+
+            if (!keystorePath.isNullOrBlank() && File(keystorePath).exists() &&
+                !keystorePass.isNullOrBlank() &&
+                !alias.isNullOrBlank() &&
+                !keyPass.isNullOrBlank()) {
+                storeFile = File(keystorePath)
+                storePassword = keystorePass
+                keyAlias = alias
+                keyPassword = keyPass
+            } else {
+                logger.warn("⚠️ AVISO: Variáveis de ambiente para assinatura de release (KEYSTORE_FILE, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) ausentes. A chave de debug NÃO será utilizada.")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
