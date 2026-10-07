@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">ODIN_BACKUP</string>
+    <string name="notification_channel_name">Operações de Backup e Restauração</string>
+    <string name="notification_channel_desc">Notificações de progresso e status de backups e restaurações do ODIN_BACKUP</string>
+</resources>

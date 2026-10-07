@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary_dark">#0A0D14</color>
+    <color name="surface_dark">#121824</color>
+    <color name="accent_blue">#2979FF</color>
+    <color name="accent_purple">#A855F7</color>
+    <color name="accent_green">#10B981</color>
+    <color name="accent_cyan">#06B6D4</color>
+    <color name="accent_orange">#F97316</color>
+    <color name="accent_red">#EF4444</color>
+</resources>
